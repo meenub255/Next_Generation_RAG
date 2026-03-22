@@ -1,8 +1,13 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Generator, Callable, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 1. SET YOUR API KEYS HERE (or use environment variables)
-os.environ["OPENAI_API_KEY"] = "sk-..."
-os.environ["TAVILY_API_KEY"] = "tvly-..."
+# os.environ["OPENAI_API_KEY"] = "sk-..."
+# os.environ["TAVILY_API_KEY"] = "tvly-..."
 
 from langchain_openai import ChatOpenAI
 from hyde import build_hyde_engine, Settings
@@ -32,29 +37,33 @@ class SelfHealingRAGSystem:
         ])
         
         self.hyde_engine = build_hyde_engine(self.vector_index)
+        self.executor = ThreadPoolExecutor(max_workers=5)
 
-    def process_query(self, query: str):
-        print(f"\n--- Processing Query: {query} ---")
+    def process_query(self, query: str, stream: bool = False, status_cb: Optional[Callable[[str], None]] = None):
+        if status_cb: status_cb(f"Processing Query: {query}")
         
-        print("1. Decomposing Query...")
+        if status_cb: status_cb("1. Decomposing Query...")
         sub_queries = plan_query(query)
-        print(f"Sub-queries generated: {sub_queries}")
+        if status_cb: status_cb(f"Sub-queries generated: {len(sub_queries)}")
         
         all_retrieved_docs = []
         
-        print("2. Retrieving via HyDE...")
-        for sq in sub_queries:
+        if status_cb: status_cb("2. Retrieving via HyDE (Parallel)...")
+        
+        def retrieve_sq(sq):
             response = self.hyde_engine.query(sq)
-            # --- FIX: Convert to LangChain Documents before passing to LangGraph ---
-            docs = [LangchainDocument(page_content=n.text) for n in response.source_nodes]
+            return [LangchainDocument(page_content=n.text) for n in response.source_nodes]
+
+        results = list(self.executor.map(retrieve_sq, sub_queries))
+        for docs in results:
             all_retrieved_docs.extend(docs)
             
-        print("3. Grading Documents (CRAG)...")
+        if status_cb: status_cb(f"3. Grading {len(all_retrieved_docs)} Documents (CRAG)...")
         crag_state = {"question": query, "documents": all_retrieved_docs, "web_search": "No", "generation": ""}
         crag_result = crag_app.invoke(crag_state)
         filtered_docs = crag_result["documents"]
         
-        print("4. Reranking Results...")
+        if status_cb: status_cb(f"4. Reranking {len(filtered_docs)} Filtered Results...")
         doc_texts = [d.page_content for d in filtered_docs]
         
         if not doc_texts:
@@ -63,7 +72,7 @@ class SelfHealingRAGSystem:
             
         final_docs = self.reranker.rerank(query, doc_texts, top_k=3)
         
-        print("5. Generating Final Answer...")
+        if status_cb: status_cb("5. Generating Final Answer...")
         context = "\n\n".join(f"[{i+1}] {doc}" for i, doc in enumerate(final_docs))
         prompt = f"""You are a helpful assistant. Answer the question below using ONLY the provided context.
 Be concise, accurate, and directly address the question.
@@ -74,6 +83,9 @@ Context:
 Question: {query}
 
 Answer:"""
+        if stream:
+            return (chunk.content for chunk in self.llm.stream(prompt))
+        
         final_answer = self.llm.invoke(prompt).content.strip()
         return final_answer
 

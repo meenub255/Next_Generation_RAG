@@ -1,6 +1,9 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
 import time
+
+load_dotenv()
 from main import SelfHealingRAGSystem
 
 # --- Page Config ---
@@ -106,14 +109,16 @@ if prompt := st.chat_input("Ask a complex question..."):
         log_placeholder = st.empty()
         logger = StreamlitLogger(log_placeholder)
         
-        with st.spinner("Analyzing and Correcting..."):
-            # Note: We'd need to modify main.py slightly to accept a logger callback 
-            # for real-time streaming of steps, but for now we'll just show the process.
-            # For this MVP, we capture the final answer.
-            answer = rag.process_query(prompt)
-            
-        st.markdown(answer)
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+        # We pass a callback to track progress in real-time
+        answer_iterator = rag.process_query(
+            prompt, 
+            stream=True, 
+            status_cb=lambda t: logger.log(t)
+        )
+        
+        # Stream the response
+        full_response = st.write_stream(answer_iterator)
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
 
 # --- Footer ---
 st.markdown("---")
