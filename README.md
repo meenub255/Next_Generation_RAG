@@ -20,40 +20,23 @@ A production-grade **Self-Healing Retrieval-Augmented Generation** system powere
 
 ## 🏗️ Architecture
 
-```
-User Query
-    │
-    ▼
-┌─────────────────────┐
-│  Query Decomposition │  → Breaks into sub-queries
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│    HyDE Retrieval    │  → Hypothetical doc embeddings → vector search
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│   CRAG Grader (LLM)  │  → Grades each doc: relevant / not relevant
-└─────────┬───────────┘
-          │
-    ┌─────┴──────┐
-    ▼            ▼
- Relevant    Not Relevant
-    │            │
-    │         Transform Query → Web Search (Tavily)
-    │            │
-    └────┬───────┘
-         ▼
-┌─────────────────────┐
-│  Cross-Encoder Rerank│  → Top-K most relevant passages
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  GPT-4o-mini Answer  │  → Final grounded answer
-└─────────────────────┘
+```mermaid
+graph TD
+    A["<b>User Query</b>"]:::startNode --> B["<b>Query Decomposition</b><br/><i>Breaks into atomic sub-queries</i>"]:::processNode
+    B --> C["<b>HyDE Retrieval</b><br/><i>Hypothetical doc embeddings</i>"]:::processNode
+    C --> D{"<b>CRAG Grader</b><br/><i>Relevance Assessment</i>"}:::decisionNode
+    
+    D -- "<b>Relevant</b>" --> E["<b>Cross-Encoder Rerank</b><br/><i>Surfaces Top-K Passages</i>"]:::processNode
+    D -- "<b>Not Relevant</b>" --> F["<b>Web Search (Tavily)</b><br/><i>Transform & Supplement</i>"]:::searchNode
+    
+    F --> E
+    E --> G["<b>GPT-4o-mini Answer</b><br/><i>Final Grounded Synthesis</i>"]:::endNode
+
+    classDef startNode fill:#00d2ff,stroke:#007bff,stroke-width:3px,color:#fff;
+    classDef processNode fill:#e1f5fe,stroke:#01579b,stroke-width:1px,color:#01579b;
+    classDef decisionNode fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#f57f17;
+    classDef searchNode fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px,color:#1b5e20;
+    classDef endNode fill:#3a7bd5,stroke:#243b55,stroke-width:3px,color:#fff;
 ```
 
 ---
