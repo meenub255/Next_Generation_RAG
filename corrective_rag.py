@@ -42,45 +42,46 @@ def grade_documents(state):
     for d in documents:
         try:
             grade = chain.invoke({"question": question, "context": d.page_content})
-            if grade.get('score').lower() == 'yes':
+            if grade.get('score', '').lower() == 'yes':
                 filtered_docs.append(d)
             else:
                 web_search = "Yes"
         except Exception as e:
-            print(f"Grading error: {e}")
-            web_search = "Yes"
+            # On API error, retain document rather than discarding context
+            filtered_docs.append(d)
+            web_search = "No"
             
     return {"documents": filtered_docs, "question": question, "web_search": web_search}
 
 def transform_query(state):
     question = state["question"]
-    
-    prompt = PromptTemplate(
-        template="""Rewrite the following user question into a highly optimized search engine query. 
-        Output ONLY the rewritten query, nothing else.
-        Question: {question}""", 
-        input_variables=["question"]
-    )
-    
-    chain = prompt | openai_llm
-    better_q = chain.invoke({"question": question}).content.strip()
-    return {"question": better_q}
+    try:
+        prompt = PromptTemplate(
+            template="""Rewrite the following user question into a highly optimized search engine query. 
+            Output ONLY the rewritten query, nothing else.
+            Question: {question}""", 
+            input_variables=["question"]
+        )
+        chain = prompt | openai_llm
+        better_q = chain.invoke({"question": question}).content.strip()
+        return {"question": better_q}
+    except Exception as e:
+        return {"question": question}
 
 def web_search_node(state):
-    response = web_tool.invoke({"query": state["question"]})
-    
     web_results = []
-    
-    # Handle the new dictionary format (extracts the 'results' list)
-    if isinstance(response, dict) and "results" in response:
-        for d in response["results"]:
-            web_results.append(Document(page_content=d.get("content", "")))
-            
-    # Fallback just in case LangChain reverts to a flat list
-    elif isinstance(response, list):
-        for d in response:
-            if isinstance(d, dict):
+    try:
+        response = web_tool.invoke({"query": state["question"]})
+        if isinstance(response, dict) and "results" in response:
+            for d in response["results"]:
                 web_results.append(Document(page_content=d.get("content", "")))
+        elif isinstance(response, list):
+            for d in response:
+                if isinstance(d, dict):
+                    web_results.append(Document(page_content=d.get("content", "")))
+    except Exception as e:
+        # Fallback gracefully if web search is unavailable or key is placeholder
+        pass
             
     return {"documents": state["documents"] + web_results}
 
